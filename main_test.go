@@ -30,7 +30,7 @@ func TestProbeHandler(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		u := fmt.Sprintf("http://example.com/probe?target=%s&jsonpath=%s", url.QueryEscape(ts.URL), url.QueryEscape(tt.in_field))
+		u := fmt.Sprintf("http://example.com/probe?target=%s&jsonpath.test=%s", url.QueryEscape(ts.URL), url.QueryEscape(tt.in_field))
 
 		req := httptest.NewRequest("GET", u, nil)
 		w := httptest.NewRecorder()
