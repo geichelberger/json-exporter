@@ -3,7 +3,9 @@ package main
 import (
 	"flag"
 	"log"
+	"net"
 	"net/http"
+	"time"
 	"strconv"
 	"strings"
 	"regexp"
@@ -40,7 +42,7 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 	get_params := r.URL.Query()
 	a_param := make(map[string]string)
 
-	log.Printf("get_params: %v", get_params)
+	//log.Printf("get_params: %v", get_params)
 	for k, v := range get_params {
 		log.Printf("key[%s] value %s\n", k, v)
 		if( strings.Contains(k , "jsonpath.") ) {
@@ -72,13 +74,20 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 	registry.MustRegister(probeDurationGauge)
 
 	tr := &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout: 5 * time.Second,
+		  }).Dial,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	client := &http.Client{Transport: tr}
+	client := &http.Client{
+		Timeout: time.Second * 10,
+		Transport: tr,
+	}
 	resp, err := client.Get(target)
 	if err != nil {
-		log.Fatal(err)
-
+		log.Printf("Request failed: %s", err.Error())
+		http.Error(w, err.Error(), http.StatusGatewayTimeout)
+		return
 	} else {
 		defer resp.Body.Close()
 		bytes, err := ioutil.ReadAll(resp.Body)
