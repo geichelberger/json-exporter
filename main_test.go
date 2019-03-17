@@ -16,8 +16,8 @@ var probeTests = []struct {
 	out_http_code int
 	out_value     string
 }{
-	{"{\"field\": 23}", "$.field", 200, "value 23"},
-	{"{\"field\": 19}", "$.field", 200, "value 19"},
+	{"{\"field\": \"23.0C\"}", "$.field", 200, "23"},
+	{"{\"field\": 19}", "$.field", 200, "19"},
 	{"{\"field\": 19}", "$.undefined", 404, "Jsonpath not found"},
 }
 
@@ -30,7 +30,7 @@ func TestProbeHandler(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		u := fmt.Sprintf("http://example.com/probe?target=%s&jsonpath.test=%s", url.QueryEscape(ts.URL), url.QueryEscape(tt.in_field))
+		u := fmt.Sprintf("http://example.com/probe?target=%s&jsonpath.value=%s", url.QueryEscape(ts.URL), url.QueryEscape(tt.in_field))
 
 		req := httptest.NewRequest("GET", u, nil)
 		w := httptest.NewRecorder()

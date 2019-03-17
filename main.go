@@ -4,8 +4,9 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
-
+	"regexp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/client_golang/prometheus"
 	"crypto/tls"
@@ -15,6 +16,7 @@ import (
 )
 
 var addr = flag.String("listen-address", ":9116", "The address to listen on for HTTP requests.")
+var regex = regexp.MustCompile("[^\\.0-9]+")
 
 func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +40,7 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 	get_params := r.URL.Query()
 	a_param := make(map[string]string)
 
-	// log.Printf("get_params: %v", get_params)
+	log.Printf("get_params: %v", get_params)
 	for k, v := range get_params {
 		log.Printf("key[%s] value %s\n", k, v)
 		if( strings.Contains(k , "jsonpath.") ) {
@@ -94,18 +96,35 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Jsonpath not found", http.StatusNotFound)
 				return
 			}
+			
+			switch v := res.(type) {
+			case string:
+				str := regex.ReplaceAllString(res.(string),"")
+				number, err := strconv.ParseFloat(str, 64)
+				if err != nil {
+					http.Error(w, "Values could not be parsed to Float64", http.StatusInternalServerError)
+					return
+				}
+				res = number
+			default:
+				res = v
+			}
+
+			
 			log.Printf("Found value %v for path %s", res, json_path)
 			number, ok := res.(float64)
 			if !ok {
 				http.Error(w, "Values could not be parsed to Float64", http.StatusInternalServerError)
 				return
 			}
-			valueGauge := prometheus.NewGauge(prometheus.GaugeOpts{
+			valueGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name:	metric_name,
 				Help:	"Retrieved value",
-			})
+			}, 
+			[]string{"hostname"})
+			
 			registry.MustRegister(valueGauge)
-			valueGauge.Set(number)
+			valueGauge.With(prometheus.Labels{"hostname":resp.Request.Host}).Set(number)
 		}
 		probeSuccessGauge.Set(1)
 	}

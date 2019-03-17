@@ -31,8 +31,8 @@ scrape_configs:
   - job_name: 'json'
     metrics_path: /probe
     params:
-      - jsonpath.nanoseconds: [$.parse_time_nanoseconds] # Look for the nanoseconds field
-      - jsonpath.size: [$.size]
+      jsonpath.nanoseconds: [$.parse_time_nanoseconds] # Look for the nanoseconds field
+      jsonpath.size: [$.size]
     static_configs:
       - targets:
         - http://validate.jsontest.com/?json=%7B%22key%22:%22value%22%7D
