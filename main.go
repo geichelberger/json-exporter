@@ -3,8 +3,12 @@ package main
 import (
 	"flag"
 	"log"
+	"net"
 	"net/http"
-
+	"time"
+	"strconv"
+	"strings"
+	"regexp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/client_golang/prometheus"
 	"crypto/tls"
@@ -14,6 +18,7 @@ import (
 )
 
 var addr = flag.String("listen-address", ":9116", "The address to listen on for HTTP requests.")
+var regex = regexp.MustCompile("[^\\.0-9]+")
 
 func main() {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -34,15 +39,25 @@ func main() {
 
 func probeHandler(w http.ResponseWriter, r *http.Request) {
 
-	params := r.URL.Query()
-	target := params.Get("target")
+	get_params := r.URL.Query()
+	a_param := make(map[string]string)
+
+	//log.Printf("get_params: %v", get_params)
+	for k, v := range get_params {
+		log.Printf("key[%s] value %s\n", k, v)
+		if( strings.Contains(k , "jsonpath.") ) {
+			a_param[strings.Replace(k,"jsonpath.","",-1)] = get_params.Get(k)
+		}
+	}
+	// log.Printf("a_target: %v", a_target)
+
+	target := get_params.Get("target")
 	if target == "" {
 		http.Error(w, "Target parameter is missing", 400)
 		return
 	}
-	lookuppath := params.Get("jsonpath")
-	if target == "" {
-		http.Error(w, "The JsonPath to lookup", 400)
+	if (len(a_param) == 0){
+		http.Error(w, "No JsonPath to lookup", 400)
 		return
 	}
 	probeSuccessGauge := prometheus.NewGauge(prometheus.GaugeOpts{
@@ -53,25 +68,26 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 		Name: "probe_duration_seconds",
 		Help: "Returns how long the probe took to complete in seconds",
 	})
-	valueGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name:	"value",
-			Help:	"Retrieved value",
-		},
-	)
+
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(probeSuccessGauge)
 	registry.MustRegister(probeDurationGauge)
-	registry.MustRegister(valueGauge)
 
 	tr := &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout: 5 * time.Second,
+		  }).Dial,
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-	client := &http.Client{Transport: tr}
+	client := &http.Client{
+		Timeout: time.Second * 10,
+		Transport: tr,
+	}
 	resp, err := client.Get(target)
 	if err != nil {
-		log.Fatal(err)
-
+		log.Printf("Request failed: %s", err.Error())
+		http.Error(w, err.Error(), http.StatusGatewayTimeout)
+		return
 	} else {
 		defer resp.Body.Close()
 		bytes, err := ioutil.ReadAll(resp.Body)
@@ -82,19 +98,44 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 
 		var json_data interface{}
 		json.Unmarshal([]byte(bytes), &json_data)
-		res, err := jsonpath.JsonPathLookup(json_data, lookuppath)
-		if err != nil {
-			http.Error(w, "Jsonpath not found", http.StatusNotFound)
-			return
-		}
-		log.Printf("Found value %v", res)
-		number, ok := res.(float64)
-		if !ok {
-			http.Error(w, "Values could not be parsed to Float64", http.StatusInternalServerError)
-			return
+
+	   for metric_name, json_path := range a_param {
+			res, err := jsonpath.JsonPathLookup(json_data, json_path)
+			if err != nil {
+				http.Error(w, "Jsonpath not found", http.StatusNotFound)
+				return
+			}
+			
+			switch v := res.(type) {
+			case string:
+				str := regex.ReplaceAllString(res.(string),"")
+				number, err := strconv.ParseFloat(str, 64)
+				if err != nil {
+					http.Error(w, "Values could not be parsed to Float64", http.StatusInternalServerError)
+					return
+				}
+				res = number
+			default:
+				res = v
+			}
+
+			
+			log.Printf("Found value %v for path %s", res, json_path)
+			number, ok := res.(float64)
+			if !ok {
+				http.Error(w, "Values could not be parsed to Float64", http.StatusInternalServerError)
+				return
+			}
+			valueGauge := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+				Name:	metric_name,
+				Help:	"Retrieved value",
+			}, 
+			[]string{"hostname"})
+			
+			registry.MustRegister(valueGauge)
+			valueGauge.With(prometheus.Labels{"hostname":resp.Request.Host}).Set(number)
 		}
 		probeSuccessGauge.Set(1)
-		valueGauge.Set(number)
 	}
 
 	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
