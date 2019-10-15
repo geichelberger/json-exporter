@@ -43,8 +43,8 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 	a_param := make(map[string]string)
 
 	//log.Printf("get_params: %v", get_params)
-	for k, v := range get_params {
-		log.Printf("key[%s] value %s\n", k, v)
+	for k := range get_params {
+		//log.Printf("key[%s] value %s\n", k, v)
 		if( strings.Contains(k , "jsonpath.") ) {
 			a_param[strings.Replace(k,"jsonpath.","",-1)] = get_params.Get(k)
 		}
@@ -120,7 +120,7 @@ func probeHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			
-			log.Printf("Found value %v for path %s", res, json_path)
+			//log.Printf("Found value %v for path %s", res, json_path)
 			number, ok := res.(float64)
 			if !ok {
 				http.Error(w, "Values could not be parsed to Float64", http.StatusInternalServerError)
